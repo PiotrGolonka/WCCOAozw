@@ -1,0 +1,18 @@
+Driver Template
+
+These files area a base framework for a new PVSS driver.
+The tool newPVSSDriver in $API_ROOT creates a new driver project
+by creating implementation files based on these files
+
+What you have to do then is simply check all
+// TODO
+comments in the files and fill in your real implementations.
+
+(Even without any modification you have already a compilable
+ and runable new PVSS driver, which just sits there doing
+ nothing ...)
+
+To install copy the compiled Driver
+into your projects "bin" directory
+
+Enjoy!

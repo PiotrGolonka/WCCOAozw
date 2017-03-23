@@ -1,0 +1,2 @@
+/usr/bin/arm-linux-gnueabihf-ar qc liblinkedAt_lib.a  CMakeFiles/linkedAt_lib.dir/linkedAt.cxx.o
+/usr/bin/arm-linux-gnueabihf-ranlib liblinkedAt_lib.a
