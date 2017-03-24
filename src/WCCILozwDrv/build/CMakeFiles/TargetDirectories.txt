@@ -1,5 +1,0 @@
-/home/pi/work/WCCOAozw/src/WCCILozwDrv/build/CMakeFiles/edit_cache.dir
-/home/pi/work/WCCOAozw/src/WCCILozwDrv/build/CMakeFiles/rebuild_cache.dir
-/home/pi/work/WCCOAozw/src/WCCILozwDrv/build/CMakeFiles/linkedAt_touch.dir
-/home/pi/work/WCCOAozw/src/WCCILozwDrv/build/CMakeFiles/WCCOAWCCILozw.dir
-/home/pi/work/WCCOAozw/src/WCCILozwDrv/build/CMakeFiles/linkedAt_lib.dir

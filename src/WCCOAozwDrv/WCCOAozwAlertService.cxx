@@ -1,20 +1,20 @@
-#include <WCCILozwAlertService.hxx>
+#include <WCCOAozwAlertService.hxx>
 #include <AlertObject.hxx>
 #include <HWObject.hxx>
-#include <WCCILozwResources.hxx>
+#include <WCCOAozwResources.hxx>
 
 //----------------------------------------------------------------------------------
-WCCILozwAlertService::WCCILozwAlertService()
+WCCOAozwAlertService::WCCOAozwAlertService()
 {
 }
 
 //----------------------------------------------------------------------------------
-WCCILozwAlertService::~WCCILozwAlertService()
+WCCOAozwAlertService::~WCCOAozwAlertService()
 {
 }
 
 //---------------------------------------------------------------------------------------------
-PVSSboolean WCCILozwAlertService::ackAlertInHW(AlertObject *alertPtr, HWObject *objPtr)
+PVSSboolean WCCOAozwAlertService::ackAlertInHW(AlertObject *alertPtr, HWObject *objPtr)
 {
   if (Resources::isDbgFlag(DrvRsrce::DBG_DRV_ALERT))
   {
@@ -31,7 +31,7 @@ PVSSboolean WCCILozwAlertService::ackAlertInHW(AlertObject *alertPtr, HWObject *
 }
 
 
-void WCCILozwAlertService::ackConfirmCB(const AlertObject *alertPtr, const HWObject *adrPtr)
+void WCCOAozwAlertService::ackConfirmCB(const AlertObject *alertPtr, const HWObject *adrPtr)
 {
   if (Resources::isDbgFlag(DrvRsrce::DBG_DRV_ALERT))
   {
@@ -41,7 +41,7 @@ void WCCILozwAlertService::ackConfirmCB(const AlertObject *alertPtr, const HWObj
   }
 }
 
-void WCCILozwAlertService::changeNotificationCB(const AlertObject *alertPtr, const HWObject *adrPtr)
+void WCCOAozwAlertService::changeNotificationCB(const AlertObject *alertPtr, const HWObject *adrPtr)
 {
   if (Resources::isDbgFlag(DrvRsrce::DBG_DRV_ALERT))
   {
@@ -51,7 +51,7 @@ void WCCILozwAlertService::changeNotificationCB(const AlertObject *alertPtr, con
   }
 }
 
-void WCCILozwAlertService::invisibleConfirmCB(const AlertObject *alertPtr, const HWObject *adrPtr)
+void WCCOAozwAlertService::invisibleConfirmCB(const AlertObject *alertPtr, const HWObject *adrPtr)
 {
   if (Resources::isDbgFlag(DrvRsrce::DBG_DRV_ALERT))
   {
