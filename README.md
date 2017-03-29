@@ -33,4 +33,5 @@ The objective of this project is to provide a driver for WinCC OA that integrate
 * build with make; 
 * install with `sudo make install`
 * there are some special instructions to make the serial port work on RPi3: http://raspberrypi.stackexchange.com/questions/45570/how-do-i-make-serial-work-on-the-raspberry-pi3
+These seem not to be extremaly important, yet one needs to note that on RPI3 the serial port is at /dev/ttyS0, whereas on RPi2 it is /dev/ttyAMA0. 
 
