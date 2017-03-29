@@ -32,3 +32,5 @@ The objective of this project is to provide a driver for WinCC OA that integrate
 * if you want to build the openzwave-control-panel, you also need libmicrohttpd: `sudo apt-get install libmicrohttpd-dev`
 * build with make; 
 * install with `sudo make install`
+* there are some special instructions to make the serial port work on RPi3: http://raspberrypi.stackexchange.com/questions/45570/how-do-i-make-serial-work-on-the-raspberry-pi3
+
