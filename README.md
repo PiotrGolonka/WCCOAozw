@@ -25,3 +25,10 @@ The objective of this project is to provide a driver for WinCC OA that integrate
    * this will generate a folder `TestDriver` with demo code and then start cmake to generate makefiles
    * `cd build; make` should do the succesful build
  * you may then create a new WinCC OA project, and check if the Driver which you build could be started (out of scope of this Readme) 
+
+### Installation of OpenZWave on RPi
+* clone the sources from git at `https://github.com/OpenZWave/open-zwave`
+* Install devel package for udev `sudo apt-get install udev-dev`
+* if you want to build the openzwave-control-panel, you also need libmicrohttpd: `sudo apt-get install libmicrohttpd-dev`
+* build with make; 
+* install with `sudo make install`
