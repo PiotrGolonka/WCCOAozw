@@ -31,3 +31,10 @@ void WCCOAozwDrv::install_AlertService()
 {
   DrvManager::install_AlertService();
 }
+
+void WCCOAozwDrv::onShutdownSignal(int sig)
+{
+    printf(" received signal %i\n",sig);
+    WCCOAozwHWService::unlockOnSignal();
+    Manager::sigHdl(sig);
+}

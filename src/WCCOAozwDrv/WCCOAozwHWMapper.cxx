@@ -12,7 +12,7 @@ PVSSboolean WCCOAozwHWMapper::addDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
   // We don't use Subindices here, so its simple.
   // Otherwise we had to look if we already have a HWObject and adapt its length.
 
-  DEBUG_DRV_USR1("addDpPa called for " << confPtr->getName());
+  DEBUG_DRV_USR1("We got a new config... addDpPa called for " << confPtr->getName());
 
   // tell the config how we will transform data to/from the device
   // by installing a Transformation object into the PeriphAddr
@@ -76,8 +76,8 @@ PVSSboolean WCCOAozwHWMapper::addDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
 
 PVSSboolean WCCOAozwHWMapper::clrDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
 {
-  DEBUG_DRV_USR1("clrDpPa called for " << confPtr->getName());
-
+  DEBUG_DRV_USR1("clrDpPa called for address " << confPtr->getName());
+  DEBUG_DRV_USR1(" it is for dpid "<<dpId);
   // Find our HWObject via a template
   HWObject adrObj;
   adrObj.setAddress(confPtr->getName());

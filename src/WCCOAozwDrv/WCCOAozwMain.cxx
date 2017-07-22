@@ -11,6 +11,8 @@ int main(int argc, char **argv)
 
   resources.init(argc, argv);
 
+  DrvRsrce::setDriverType("OZW");
+
   // the user wants to know std. commandline options
   if ( resources.getHelpFlag() )
   {
@@ -33,11 +35,11 @@ int main(int argc, char **argv)
   }
 
   // handle std. signals
-  signal(SIGINT, Manager::sigHdl);
-  signal(SIGTERM, Manager::sigHdl);
+  signal(SIGINT,  WCCOAozwDrv::onShutdownSignal); //signal(SIGINT, Manager::sigHdl);
+  signal(SIGTERM, WCCOAozwDrv::onShutdownSignal);//Manager::sigHdl
 
   // a pointer is needed, since the Manager dtor does a delete
-  WCCOAozwDrv *driver = new WCCOAozwDrv;
+  WCCOAozwDrv *driver = new WCCOAozwDrv();
 
   driver->mainProcedure(argc, argv);
 

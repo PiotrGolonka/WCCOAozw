@@ -3,6 +3,8 @@
 
 #include <DrvManager.hxx>
 
+class WCCOAozwInternalDp;
+
 class WCCOAozwDrv : public DrvManager
 {
   public:
@@ -11,6 +13,10 @@ class WCCOAozwDrv : public DrvManager
     virtual void install_AlertService();
 
     virtual HWObject *getHWObject() const; 
+
+    static void onShutdownSignal(int signum);
+
+  private:
 };
 
 #endif
