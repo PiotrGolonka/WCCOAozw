@@ -9,31 +9,96 @@
 
 PVSSboolean WCCOAozwHWMapper::addDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
 {
+
   // We don't use Subindices here, so its simple.
   // Otherwise we had to look if we already have a HWObject and adapt its length.
 
-  DEBUG_DRV_USR1("We got a new config... addDpPa called for " << confPtr->getName());
+  DEBUG_DRV_USR1("We got a new config... addDpPa called for " << confPtr->getName()<<" trans type requested is "<<confPtr->getTransformationType() );
 
-  // tell the config how we will transform data to/from the device
-  // by installing a Transformation object into the PeriphAddr
-  // In this template, the Transformation type was set via the
-  // configuration panel (it is already set in the PeriphAddr)
+  // We need to set up a transformation object to be used for this new DPElement.
+  // Transformation is usually set in the PARA module (and in the address config) and it is expressed by a constant;
+  // then, for standard driver types we have constants defined in Configs/ConfigTypes.hxx .
+  //
+  // For our convenience we will reuse the contants of Profibus (as they are used also by SIM driver)
+  // as well as OPC-UA; one could use either of these in the para module until we have a proper panel.
+  // This is easier than maintaining our own set of constants, or trying to extend the enum.
+  //
+  // Following the example driver, we will have only one transformation, WCCOAozwTrans,
+  // yet it is nicely paramerizable - we could pass the type we want to serve in its constructor.
+  // Then, it assumes that the hardware handling is done through strings, which is pretty
+  // convenient for OpenZWave.
+  //
+  // Note that a lot of data handling is done through the HWObject class, which may have
+  // different roles. 
 
-  // TODO this really depends on your protocol and is therefore just an example
-  // in this example we use the ones from Pbus, as those can be selected
-  // with the SIM driver parametrization panel
+
+// FOR REFERENCE (will not be used here) we have the following value types in OpenZWave:
+//	ValueType_Bool 		Boolean, true or false
+//	ValueType_Byte 		8-bit unsigned value
+//	ValueType_Decimal 	Represents a non-integer value as a string, to avoid floating point accuracy issues.
+//	ValueType_Int 		32-bit signed value
+//	ValueType_List 		List from which one item can be selected
+//	ValueType_Schedule 	Complex type used with the Climate Control Schedule command class
+//	ValueType_Short 	16-bit signed value
+//	ValueType_String 	Text string
+//	ValueType_Button 	A write-only value that is the equivalent of pressing a button to send a command to a device
+//	ValueType_Raw 		A collection of bytes
+
+
+  // note that we still miss something for dyn-typed DPEs...
+
   switch ( confPtr->getTransformationType() )
   {
     case PbusTransVisibleType:
+    case OpcUaTransStringType:
       confPtr->setTransform(new WCCOAozwTrans(TEXT_VAR));
       break;
 
+    case PbusTransBooleanType:
+    case OpcUaTransBooleanType:
+      confPtr->setTransform(new WCCOAozwTrans(BIT_VAR));
+      break;
+
+    case PbusTransUInt8Type:
+    case PbusTransUInt16Type:
+    case OpcUaTransByteType:
+      confPtr->setTransform(new WCCOAozwTrans(CHAR_VAR));
+      break;
+
+
+    case PbusTransUInt32Type:
+    case OpcUaTransUInt32Type:
+      confPtr->setTransform(new WCCOAozwTrans(UINTEGER_VAR));
+      break;
+
     case PbusTransInt32Type:
+    case OpcUaTransInt32Type:
       confPtr->setTransform(new WCCOAozwTrans(INTEGER_VAR));
       break;
 
     case PbusTransFloatType:
-      confPtr->setTransform(new WCCOAozwTrans(FLOAT_VAR));
+    case OpcUaTransFloatType:
+      confPtr->setTransform(new WCCOAozwTrans(FLOAT_VAR)); 
+      break;
+
+    case PbusTransDateType:
+    case PbusTransTimeType: 
+    case PbusTransTimeDifferType: // note we get all three profibus constants
+    case OpcUaTransDateTimeType:
+      confPtr->setTransform(new WCCOAozwTrans(TIME_VAR)); 
+      break;
+
+    case OpcUaTransInt64Type:
+      confPtr->setTransform(new WCCOAozwTrans(LONG_VAR)); 
+      break;
+
+    case OpcUaTransUInt64Type:
+      confPtr->setTransform(new WCCOAozwTrans(ULONG_VAR)); 
+      break;
+
+    case PbusTransOctetType:
+    case OpcUaTransByteStringType:
+      confPtr->setTransform(new WCCOAozwTrans(BLOB_VAR)); 
       break;
 
     default :
@@ -59,7 +124,7 @@ PVSSboolean WCCOAozwHWMapper::addDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
   hwObj->setConnectionId(confPtr->getConnectionId());
   hwObj->setAddress(confPtr->getName());       // Resolve the HW-Address, too
 
-  // Set the data type.
+  // Set our transformation
   hwObj->setType(confPtr->getTransform()->isA());
 
   // Set the len needed for data from _all_ subindices of this PVSS-Address.
@@ -76,15 +141,15 @@ PVSSboolean WCCOAozwHWMapper::addDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
 
 PVSSboolean WCCOAozwHWMapper::clrDpPa(DpIdentifier &dpId, PeriphAddr *confPtr)
 {
-  DEBUG_DRV_USR1("clrDpPa called for address " << confPtr->getName());
-  DEBUG_DRV_USR1(" it is for dpid "<<dpId);
-  // Find our HWObject via a template
-  HWObject adrObj;
-  adrObj.setAddress(confPtr->getName());
+  DEBUG_DRV_USR1("clrDpPa called for address " << confPtr->getName()<<" for dpid "<<dpId);
+  // Look up the instance of our HWObject on the internal list;
+  // we create an object that is similar, and then use a lookup function
+  HWObject adrObjToFind;
+  adrObjToFind.setAddress(confPtr->getName()); 
 
   // Lookup HW-Object via the Name, not via the HW-Address
   // The class type isn't important here
-  HWObject *hwObj = findHWAddr(&adrObj);
+  HWObject *hwObj = findHWAddr(&adrObjToFind);
 
   if ( hwObj )
   {

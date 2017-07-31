@@ -6,9 +6,14 @@
 #include "WCCOAozwInternalDp.hxx"
 
 #include <DynVar.hxx>
+#include <TextVar.hxx>
+#include <BitVar.hxx>
+#include <FloatVar.hxx>
+#include <IntegerVar.hxx>
+#include <TimeVar.hxx>
 #include <MappingVar.hxx>
 #include <UIntegerVar.hxx>
-
+#include <ErrHdl.hxx>
 
 
 // These are from OpenZwave (mind an almost-conflict in names... luckily we have a namespace)
@@ -27,16 +32,104 @@
 static pthread_mutex_t g_criticalSection;
 static pthread_cond_t  initCond  = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t initMutex = PTHREAD_MUTEX_INITIALIZER;
-static uint32 g_homeId;
 static bool   g_initFailed = false;
 
+uint32 WCCOAozwHWService::g_homeId = 0;
 MappingVar WCCOAozwHWService::s_nodes;
 bool       WCCOAozwHWService::s_nodesUpdated=false;
 std::mutex WCCOAozwHWService::s_nodesUpdatedMutex;
 
+std::map<CharString,ValueIDRecord> WCCOAozwHWService::s_addrToValues;
+
+
+static OpenZWave::ValueID sEmptyValueId((uint32)0,(uint64)0);
+
+ValueIDRecord::ValueIDRecord(): 
+    nodeId(0),valueId(sEmptyValueId),data(0)
+{
+};
+
+CharString ValueIDRecord::ValueIdToAddress(OpenZWave::ValueID valueID) 
+{
+    char buf[64];
+    snprintf(buf,63,"%i.%i.%i.%i",valueID.GetNodeId(), valueID.GetCommandClassId(),valueID.GetInstance(),valueID.GetIndex());
+
+    return CharString(buf);
+}
+
 
 std::list<WCCOAozwValueChange>  WCCOAozwHWService::s_changesToSend;
 std::mutex                      WCCOAozwHWService::s_changesMutex;
+
+///////////////////////////////////////////////////////////////////////////////////
+// Format of address
+// -----------------
+//
+// There are in general two cases for addressing
+//
+// 1) addressing of the particular intenal property or function of a node
+// 2) addressing of properties that reflect the command classes implemented by a node
+//
+// The address is a string of dot-separated items; the first token always reflects
+// the ZWave nodeID (counting from 1). A special ID of zero (0) refers to 
+// the functionality that affects the ZWave controller or the complete network.
+//
+// __Addressing of special properties__
+//
+// For this type of addresses, the nodeID is followed by the dot, and then
+// by a string of characters that specify the property. For instance
+//   3.QS     -> refers to  the "query stage" of OpenZWave (when driver initializes),
+//               for device with nodeID=3.
+//   0.HomeID -> refers to the ZWave HomeID of the complete network/driver;
+//               note that the special nodeID=0 is used here, as the property
+//               does not refer to any of nodes, but rather the network.
+//
+// __Addressing of properties of ZWave devices__
+//
+// All properties of ZWave devices are accessible through the abstraction of 
+// command classes (see ZWave documentation for details). Each command class
+// has a standardized numerical ID defined.
+// There are many predefined and generic classes with standard functionality, 
+// that are implemented by a variety of devices. A device may implement many
+// command classes, yet it is mandatory that it implements the Basic class.
+// This basic class allows to query the identity of devices, among others.
+//
+// The format of the address is as follows
+//    <nodeId>.<commandClass>.<instanceID>.<index>
+// In addition to the numerical <nodeId> already mentioned, the following
+// elements build the address:
+//   - <commandClass> - the numerical ID of the command class that manages the value
+//   - <instanceID> - there may be many instances of the same command class
+//                    that device implements (particularly the SensorMultilevel);
+//                    in this case this field allows to specify the one desired;
+//                    otherwise it is typically one.
+//   - <index> - specify the ZWave parameter ID within the command class
+//
+// Examples:
+//  - 3.37.1.0: "switch on the light": act on a device with nodeID=3, 
+//               which implements the "binary switch" command class (ID 37), 
+//               act on its only instance (1) and property ID (index) 0;
+//               one my set the true or false value to switch on/off the device
+//
+//  - 5.38.1.0  "dim the light"; the device with nodeID=5 implements the "dimmer"
+//               command class (ID 38); instance 1, parameter zero could be set
+//               to a float value (0-100) reflecting the percentage of power
+//
+//  - 5.38.2.0  as above, yet if the device is a two-relay in-wall light switch it
+//               would have the index "2" here (corresponding to the 2nd 
+//               "button" or relay)
+//
+//
+// __Notice on Home ID and multiple ZWave networks__
+//
+// In setups whereby more than one ZWave network needs to be controlled, each
+// of them would have a separate HomeID, and would be served by a separate
+// ZWave interface. In such case, each of them would be served by a separate
+// instabce of WCCOAozw driver (with different driver number), which
+// makes the addressing unique.
+//
+///////////////////////////////////////////////////////////////////////////////////
+
 
 void OnNotification( OpenZWave::Notification const* _notification, void* _context)
 {
@@ -52,10 +145,10 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
     switch( _notification->GetType() ){ 
                case OpenZWave::Notification::Type_DriverReady:
                 {
-                        g_homeId = _notification->GetHomeId();
-			printf ("driver ready with home id %i\n",g_homeId);
-			WCCOAozwInternalDp::setStatusText(CharString("Driver ready with homeID ")+CharString(g_homeId));
-			WCCOAozwInternalDp::updateHomeId(g_homeId);
+                        WCCOAozwHWService::g_homeId = _notification->GetHomeId();
+			printf ("driver ready with home id %i\n",WCCOAozwHWService::g_homeId);
+			WCCOAozwInternalDp::setStatusText(CharString("Driver ready with homeID ")+CharString(WCCOAozwHWService::g_homeId));
+			WCCOAozwInternalDp::updateHomeId(WCCOAozwHWService::g_homeId);
                         break;
                 }
 
@@ -92,10 +185,10 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
 
 		case OpenZWave::Notification::Type_NodeAdded:
 		{
-		    std::cout<<"Node added"<<(int)_notification->GetNodeId()<<std::endl;
-		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId())<<" / ";
-		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(g_homeId,_notification->GetNodeId())<<" / ";
-		    std::cout<<" -> Type:"<<OpenZWave::Manager::Get()->GetNodeType(g_homeId,_notification->GetNodeId())<<std::endl;
+//		    std::cout<<"Node added"<<(int)_notification->GetNodeId()<<std::endl;
+//		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<" / ";
+//		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<" / ";
+//		    std::cout<<" -> Type:"<<OpenZWave::Manager::Get()->GetNodeType(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<std::endl;
 		    std::lock_guard<std::mutex> guard(WCCOAozwHWService::s_nodesUpdatedMutex);
 		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()), TextVar("ADDED"));
 		    WCCOAozwHWService::s_nodesUpdated=true;
@@ -111,10 +204,10 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
 		}
 		case OpenZWave::Notification::Type_NodeNew:
 		{
-		    std::cout<<"Node NEW"<<(int)_notification->GetNodeId()<<std::endl;
-		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId())<<" / ";
-		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(g_homeId,_notification->GetNodeId())<<" / ";
-		    std::cout<<" -> Type:"<<OpenZWave::Manager::Get()->GetNodeType(g_homeId,_notification->GetNodeId())<<std::endl;
+//		    std::cout<<"Node NEW"<<(int)_notification->GetNodeId()<<std::endl;
+//		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<" / ";
+//		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<" / ";
+//		    std::cout<<" -> Type:"<<OpenZWave::Manager::Get()->GetNodeType(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<std::endl;
 		    std::lock_guard<std::mutex> guard(WCCOAozwHWService::s_nodesUpdatedMutex);
 		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()), TextVar("NEW"));
 		    WCCOAozwHWService::s_nodesUpdated=true;
@@ -123,7 +216,7 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
 		    WCCOAozwValueChange vc;
 		    vc.ts=TimeVar();
 		    vc.addr=CharString(_notification->GetNodeId())+".QS";
-		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str());
+		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str());
 		    WCCOAozwHWService::s_changesToSend.push_back(vc);
 
 
@@ -131,12 +224,12 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
 		}
 		case OpenZWave::Notification::Type_NodeProtocolInfo:
 		{
-		    std::cout<<"Node protocol info complete "<<(int)_notification->GetNodeId()<<std::endl;
-		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId())<<" / ";
-		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(g_homeId,_notification->GetNodeId())<<" / ";
-		    std::cout<<" -> Type:"<<OpenZWave::Manager::Get()->GetNodeType(g_homeId,_notification->GetNodeId())<<std::endl;
+//		    std::cout<<"Node protocol info complete "<<(int)_notification->GetNodeId()<<std::endl;
+//		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<" / ";
+//		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<" / ";
+//		    std::cout<<" -> Type:"<<OpenZWave::Manager::Get()->GetNodeType(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<<std::endl;
 		    std::lock_guard<std::mutex> guard(WCCOAozwHWService::s_nodesUpdatedMutex);
-		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()),  TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str()));
+		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()),  TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str()));
 		    WCCOAozwHWService::s_nodesUpdated=true;
 
 
@@ -144,43 +237,43 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
 		    WCCOAozwValueChange vc;
 		    vc.ts=TimeVar();
 		    vc.addr=CharString(_notification->GetNodeId())+".QS";
-		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str());
+		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str());
 		    WCCOAozwHWService::s_changesToSend.push_back(vc);
 		    break;
 		}
                 case OpenZWave::Notification::Type_EssentialNodeQueriesComplete:
 		{
-		    std::cout<<"Essential Node queries complete "<<(int)_notification->GetNodeId()<<std::endl;
-		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId())<< " / ";
-		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(g_homeId,_notification->GetNodeId());
-		    std::cout<<std::endl;
+//		    std::cout<<"Essential Node queries complete "<<(int)_notification->GetNodeId()<<std::endl;
+//		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<< " / ";
+//		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(WCCOAozwHWService::g_homeId,_notification->GetNodeId());
+//		    std::cout<<std::endl;
 		    std::lock_guard<std::mutex> guard(WCCOAozwHWService::s_nodesUpdatedMutex);
-		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()),  TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str()));
+		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()),  TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str()));
 		    WCCOAozwHWService::s_nodesUpdated=true;
 
 		    std::lock_guard<std::mutex> guardVC(WCCOAozwHWService::s_changesMutex);
 		    WCCOAozwValueChange vc;
 		    vc.ts=TimeVar();
 		    vc.addr=CharString(_notification->GetNodeId())+".QS";
-		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str());
+		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str());
 		    WCCOAozwHWService::s_changesToSend.push_back(vc);
 		    break;
 		}
                 case OpenZWave::Notification::Type_NodeQueriesComplete:
 		{
 		    std::cout<<"ALL Node queries complete "<<(int)_notification->GetNodeId()<<std::endl;
-		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId())<< " / ";
-		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(g_homeId,_notification->GetNodeId());
-		    std::cout<<std::endl;
+//		    std::cout<<" -> Stage:"<<OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId())<< " / ";
+//		    std::cout<<" -> Product:"<<OpenZWave::Manager::Get()->GetNodeProductName(WCCOAozwHWService::g_homeId,_notification->GetNodeId());
+//		    std::cout<<std::endl;
 		    std::lock_guard<std::mutex> guard(WCCOAozwHWService::s_nodesUpdatedMutex);
-		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()),  TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str()));
+		    WCCOAozwHWService::s_nodes.setAt(UIntegerVar(_notification->GetNodeId()),  TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str()));
 		    WCCOAozwHWService::s_nodesUpdated=true;
 
 		    std::lock_guard<std::mutex> guardVC(WCCOAozwHWService::s_changesMutex);
 		    WCCOAozwValueChange vc;
 		    vc.ts=TimeVar();
 		    vc.addr=CharString(_notification->GetNodeId())+".QS";
-		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(g_homeId,_notification->GetNodeId()).c_str());
+		    vc.value=new TextVar(OpenZWave::Manager::Get()->GetNodeQueryStage(WCCOAozwHWService::g_homeId,_notification->GetNodeId()).c_str());
 		    WCCOAozwHWService::s_changesToSend.push_back(vc);
 		    break;
 		}
@@ -198,22 +291,54 @@ void OnNotification( OpenZWave::Notification const* _notification, void* _contex
 
 		case OpenZWave::Notification::Type_ValueAdded:
 		{
-		    string sVal;
-		    sVal.reserve(64);
-		    OpenZWave::Manager::Get()->GetValueAsString(_notification->GetValueID(),&sVal);
-//		    std::cout<<"Value Added for node:"<<(int)_notification->GetNodeId()<<" ValId:"<<_notification->GetValueID().GetId()<<" Val:"<<sVal<<std::endl;
+		    //string sVal;
+		    //sVal.reserve(64);
+		    //OpenZWave::Manager::Get()->GetValueAsString(_notification->GetValueID(),&sVal);
+		    ValueIDRecord rec;
+		    rec.nodeId=_notification->GetNodeId();
+		    rec.valueId=_notification->GetValueID();
+		    rec.data=0;
+		    CharString addr=ValueIDRecord::ValueIdToAddress(_notification->GetValueID());
+		    //std::cout<<"Value Added for node:"<<(int)_notification->GetNodeId()<<" ValId:"<<_notification->GetValueID().GetId()<<" Addr:"<<addr<<std::endl;
+
+		    //addr+=_notification->GetNodeId()+".";
+		    WCCOAozwHWService::s_addrToValues[addr]=rec;
+
 		    break;
 		}
 
 		case OpenZWave::Notification::Type_ValueChanged:
+		case OpenZWave::Notification::Type_ValueRefreshed:
 		{
+		    //OpenZWave::ValueID valueId=_notification->GetValueID();
 		    string sVal;
-		    sVal.reserve(64);
+		    sVal.reserve(256);
 		    OpenZWave::Manager::Get()->GetValueAsString(_notification->GetValueID(),&sVal);
-//		    std::cout<<"Value Changed for node:"<<(int)_notification->GetNodeId()<<" ValId:"<<_notification->GetValueID().GetId()<<" Val:"<<sVal<<std::endl;
+		    CharString addr=ValueIDRecord::ValueIdToAddress(_notification->GetValueID());
+		    
+		    //char sAddr[31];
+		    //snprintf(sAddr,32,"%u.%u.%u.%u",_notification->GetNodeId(),valueId.GetCommandClassId(),valueId.GetInstance(),valueId.GetIndex());
+
+		    std::lock_guard<std::mutex> guardVC(WCCOAozwHWService::s_changesMutex);
+		    WCCOAozwValueChange vc;
+		    vc.ts=TimeVar();
+		    //vc.addr=CharString(sAddr);
+		    vc.addr=addr;
+		    vc.value=new TextVar(sVal.c_str());
+		    WCCOAozwHWService::s_changesToSend.push_back(vc);
+
+		    const char *what="Changed";
+		    if (_notification->GetType()==OpenZWave::Notification::Type_ValueRefreshed) what="Refreshed";
+		    
+		    std::cout<<"Value "<<what<<" for node:"<<(int)_notification->GetNodeId()<<" at "<<addr<<" ValId:"<<_notification->GetValueID().GetId()<<" Val:"<<sVal<<std::endl;
 		    break;
 		}
-                        
+                case OpenZWave::Notification::Type_ValueRemoved:
+		{
+		    CharString addr=ValueIDRecord::ValueIdToAddress(_notification->GetValueID());
+		    std::cout<<"Value Removed for node:"<<(int)_notification->GetNodeId()<<" ADDR "<<addr<<" ValId:"<<_notification->GetValueID().GetId()<<addr<<std::endl;
+		    WCCOAozwHWService::s_addrToValues.erase(addr);
+		}
                 case OpenZWave::Notification::Type_Notification:
 		{
 		    std::cout<<"NOTIFICATION for node:"<<(int)_notification->GetNodeId()<<" # ";
@@ -374,7 +499,7 @@ OpenZWave::Options::Destroy();
 }
 
 //--------------------------------------------------------------------------------
-static int MYCOUNT=0;
+//static int MYCOUNT=0;
 
 void WCCOAozwHWService::workProc()
 {
@@ -488,19 +613,128 @@ void WCCOAozwHWService::workProc()
     sleep(1);
 }
 
+
+PVSSboolean WCCOAozwHWService::handleNodeSpecialCommand(const char *sNodeId, const char *sCommand, const char *value)
+{
+  return PVSS_TRUE;
+}
+
+PVSSboolean WCCOAozwHWService::handleNodeCommandClass(const CharString &address, const char *value)
+{
+
+
+  auto it=WCCOAozwHWService::s_addrToValues.find(address);
+
+  if (it==WCCOAozwHWService::s_addrToValues.end()) {
+     ErrHdl::error(
+        ErrClass::PRIO_SEVERE,             // Data will be lost
+        ErrClass::ERR_PARAM,               // Wrong parametrization
+        ErrClass::UNEXPECTEDSTATE,         // Nothing else appropriate
+        "WCCOAozwHWService::handleNodeCommandClass",      // File and function name
+        "Unrecognized address",                // Message
+        address.c_str()                       // faulty address
+    );
+    return PVSS_FALSE;
+
+  }
+
+  OpenZWave::ValueID &valueId=it->second.valueId;
+
+//OpenZWave::ValueID valueIdOrig(WCCOAozwHWService::g_homeId,3,OpenZWave::ValueID::ValueGenre_Basic ,37,1,0,OpenZWave::ValueID::ValueType_Bool );
+//    OpenZWave::ValueID valueId(WCCOAozwHWService::g_homeId, atoi(sNodeId),OpenZWave::ValueID::ValueGenre_Basic ,
+//                               atoi(sCommandClassId),atoi(sInstanceId), atoi(sIndexId),
+//                               OpenZWave::ValueID::ValueType_Bool );
+
+    if (valueId.GetType() == OpenZWave::ValueID::ValueType_Bool ) {
+
+
+
+      Variable *var = Variable::allocate(BIT_VAR);
+
+      (*var) = TextVar(reinterpret_cast<const char *>(value));  
+
+        bool val=*((BitVar*)var);
+        //if (value && strlen(value)>=2) val=true;
+//	BitVar bv=TextVar(value);
+//	val=bv;
+        OpenZWave::Manager::Get()->SetValue(valueId, val);
+        // sending was successful
+        return PVSS_TRUE;
+
+    } 
+
+
+     ErrHdl::error(
+        ErrClass::PRIO_SEVERE,             // Data will be lost
+        ErrClass::ERR_PARAM,               // Wrong parametrization
+        ErrClass::UNEXPECTEDSTATE,         // Nothing else appropriate
+        "WCCOAozwHWService::handleNodeCommandClass",      // File and function name
+        "Attempt to write data of wrong type",                // Message
+        address.c_str()                       // faulty address
+      );
+
+      return PVSS_FALSE;
+
+
+}
+
+
+
 //--------------------------------------------------------------------------------
 // we get data from PVSS and shall send it to the periphery
 
 PVSSboolean WCCOAozwHWService::writeData(HWObject *objPtr)
 {
+
+
   if ( Resources::isDbgFlag(Resources::DBG_DRV_USR1) ) {
     DEBUG_DRV_USR1("we have a value to send...");
+
+    // we always get transformation number 1000, i.e. our WCCOAozwTrans,
+    // because we specify it in WCCOAozwHWMapper::addDpPa(),
+    // passing the actual accepted types (String, Float, Integer)
+
+//    CharString DPName;
+//    int result=DpIdentification::getDpIdentificationPtr()->getDpName(objPtr->getConnectionId(), DPName);
+
+//    printf ("addr: %s trans:%i connId:%li DPID %s, HWOID:%li SUBIDX:%i \n",objPtr->getAddress().c_str(),objPtr->getType(),objPtr->getConnectionId(), DPName.c_str(),objPtr->getHwoId(), (int)objPtr->getSubindex());
+    printf ("addr: %s trans:%i SUBIDX:%i \n",objPtr->getAddress().c_str(),objPtr->getType(),(int)objPtr->getSubindex());
     objPtr->debugPrint();
   }
-  // TODO somehow send the data to your device
 
-  // sending was successful
-  return PVSS_TRUE;
+
+  // For explanation about the address format, see the top of the file or documentation.
+  // Based on this specification we parse the address
+
+  CharString addr=objPtr->getAddress();
+  std::vector<CharString> addrElements;
+
+
+  addr.tokenize(addrElements,".");
+
+  switch (addrElements.size()) {
+
+    case 2:
+	return handleNodeSpecialCommand(addrElements[0].c_str(),addrElements[1].c_str(), (const char*) objPtr->getData());
+        break;
+    case 4:
+	return handleNodeCommandClass(addr, (const char*) objPtr->getData());
+        break;
+    default:
+       ErrHdl::error(
+        ErrClass::PRIO_SEVERE,             // Data will be lost
+        ErrClass::ERR_PARAM,               // Wrong parametrization
+        ErrClass::UNEXPECTEDSTATE,         // Nothing else appropriate
+        "WCCOAozwTrans::writeData",      // File and function name
+        "Wrong address format",            // Message
+        addr.c_str()                       // faulty address
+    );
+        return false;
+
+  }
+
+    return PVSS_FALSE;
+
 }
 
 //--------------------------------------------------------------------------------

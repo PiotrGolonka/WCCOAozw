@@ -10,15 +10,21 @@ class WCCOAozwInternalDp : public DrvIntDp
 
     enum
     {
-      inResetCounter,          // [IN] Reset counter
-      inStartValue,            // [IN] Start value of counter
+      inRequestNodeData,       // [IN]
+      inCommandGet,
+      inCommandSet,
       // append additional inputs here
-      maxConnect,              // No. of DPE we will connect to => will be used in the constructor
-      outCounter = maxConnect, // [OUT] Message counter
-      outStatus,
+      maxConnect,
+      // and outputs here
+      outStatus= maxConnect,   // No. of DPE we will connect to => will be used in the constructor
       nodesIds,
       nodesQueryStages,
       homeID,
+      outNodeData,
+      outCmdClassesIds,
+      outCmdClassesNames,
+      outCmdClassesVersions,
+      outCommandResult,
       maxDP                    // Total no. of DPE => will be used in the constructor
     };
 
@@ -36,6 +42,13 @@ class WCCOAozwInternalDp : public DrvIntDp
 
     /** called if there is a hotlink to a certain index */
     virtual void hotLink2Internal(int index, Variable* varPtr);
+
+    // this one is called when .NodeQuery.NodeId is filled
+    // and will do the dpSet of result
+    virtual void serveNodeDataRequest(unsigned nodeId);
+
+    virtual void serveCmdGetRequest(const TextVar& addr);
+    virtual void serveCmdSetRequest(const TextVar& addr, const TextVar& value);
 
     static void setStatusText(const CharString &statusText);
     static void updateHomeId(unsigned theHomeId);

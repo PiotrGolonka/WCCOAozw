@@ -5,11 +5,29 @@
 
 #include <stdio.h>
 
+// Look also at the comments at WCCOAozwHWMapper.cxx
+//
+// We have only one transformation object, that is parameterizable,
+// i.e. we could tell it what type we want to handle.
+// Then it makes use of the fact that "any" WinCCOA variable can
+// be casted to/from string, by simple assignment.
+//
+// Hence, we assume that communication with hardware is done only
+// with string-typed data (ie. that OpenZWave will be able to
+// send us and accept all possible data using strings). And
+// we also set an arbitrary maximum data size to be 256 chars.
+// At this moment (no support for dyn-values) this seems to be
+// a sensible compromise.
+
 //----------------------------------------------------------------------------
 
 TransformationType WCCOAozwTrans::isA() const
 {
-  // TODO
+  // TransUserType=1000 is declared in Configs/ConfigTypes.hxx
+  // and marks the first enum element for user transformation types
+
+  // for other transformations, if we ever needed more than one
+  // we would need to use other constants > 1000
   return (TransformationType) TransUserType;
 }
 
@@ -17,6 +35,8 @@ TransformationType WCCOAozwTrans::isA() const
 
 TransformationType WCCOAozwTrans::isA(TransformationType type) const
 {
+  // This one is for compatibility with some deprecated APIs; see headers
+  // of parent class
   if ( type == isA() )
     return type;
   else
@@ -27,7 +47,6 @@ TransformationType WCCOAozwTrans::isA(TransformationType type) const
 
 Transformation *WCCOAozwTrans::clone() const
 {
-  // TODO
   return new WCCOAozwTrans(varType);
 }
 
