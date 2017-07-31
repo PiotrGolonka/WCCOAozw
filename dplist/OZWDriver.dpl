@@ -1,0 +1,25 @@
+# ascii dump of database
+
+# DpType
+TypeName
+_OzwDriver._OzwDriver	1#1
+	Status	25#5
+	Nodes	1#6
+		Ids	4#9
+		QueryStages	9#14
+	HomeID	20#12
+	NodeQuery	1#15
+		NodeId	20#16
+		Data	9#17
+		CmdClasses	1#18
+			Ids	4#19
+			Names	9#20
+			Versions	4#21
+	Command	1#22
+		Get	25#27
+		Set	9#26
+		Result	25#25
+
+# Datapoint/DpId
+DpName	TypeName	ID
+_OZWDriver_2	_OzwDriver	483
